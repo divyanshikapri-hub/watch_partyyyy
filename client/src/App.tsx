@@ -1,10 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import Fuse from 'fuse.js';
-import { Users, MessageSquare, Send, Activity, ShieldCheck, Film } from 'lucide-react';
+import {
+  Users,
+  MessageSquare,
+  Send,
+  Activity,
+  ShieldCheck,
+  Film,
+  Play,
+  Shuffle,
+  Lock,
+  UserCheck
+} from 'lucide-react';
 import { SyncManager } from './syncManager';
 
-const BACKEND_URL = `http://${window.location.hostname}:4000`;
+const BACKEND_URL =
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:4000'
+    : `http://${window.location.hostname}:4000`;
 
 interface User {
   id: string;
@@ -33,23 +47,23 @@ interface FloatingEmoji {
 const DEFAULT_PLAYLIST: PlaylistItem[] = [
   {
     id: '1',
-    title: 'Oceans (Wildlife Documentary)',
+    title: 'Oceans (Wildlife Doc)',
     url: 'https://vjs.zencdn.net/v/oceans.mp4',
   },
   {
     id: '2',
-    title: 'Big Buck Bunny (Animation)',
+    title: 'Flower Bloom (Mozilla CC0)',
     url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
   },
   {
     id: '3',
-    title: 'Elephants Dream (Sci-Fi CGI)',
-    url: 'https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4',
+    title: 'We Are Going On Bullrun (Direct HD)',
+    url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
   },
   {
     id: '4',
-    title: 'Sintel Trailer (Fantasy)',
-    url: 'https://archive.org/download/Sintel/sintel-2048-surround_512kb.mp4',
+    title: 'Sintel Trailer (Direct MP4)',
+    url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
   },
 ];
 
@@ -65,7 +79,7 @@ export default function App() {
   const [currentVideoUrl, setCurrentVideoUrl] = useState(DEFAULT_PLAYLIST[0].url);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Sync & Latency HUD states
+  // Sync telemetry
   const [rtt, setRtt] = useState(0);
   const [drift, setDrift] = useState(0);
   const [propagationLag, setPropagationLag] = useState(0);
@@ -75,6 +89,9 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState('');
   const [floatingEmojis, setFloatingEmojis] = useState<FloatingEmoji[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Landing page mode
+  const [lobbyTab, setLobbyTab] = useState<'join' | 'create'>('join');
 
   const socketRef = useRef<Socket | null>(null);
   const syncManagerRef = useRef<SyncManager | null>(null);
@@ -96,7 +113,7 @@ export default function App() {
       if (videoRef.current) {
         videoRef.current.currentTime = state.playbackPosition || 0;
         if (state.isPlaying) {
-          videoRef.current.play().catch(() => {});
+          videoRef.current.play().catch(() => { });
         }
       }
     });
@@ -127,11 +144,13 @@ export default function App() {
       const delayMs = Math.max(0, scheduledExecutionServerTime - now);
       setTimeout(() => {
         if (!videoRef.current) return;
+
+        // Lock emission of local events during sync
         isLocalActionRef.current = true;
 
         if (action === 'PLAY') {
           videoRef.current.currentTime = position;
-          videoRef.current.play().catch(() => {});
+          videoRef.current.play().catch(() => { });
           setIsPlaying(true);
         } else if (action === 'PAUSE') {
           videoRef.current.pause();
@@ -141,9 +160,10 @@ export default function App() {
           videoRef.current.currentTime = position;
         }
 
+        // Release the lock only after the browser settles
         setTimeout(() => {
           isLocalActionRef.current = false;
-        }, 120);
+        }, 300);
       }, delayMs);
     });
 
@@ -187,9 +207,25 @@ export default function App() {
     }, 2000);
   };
 
+  const generateRandomRoom = () => {
+    const adjectives = ['lively', 'cosmic', 'swift', 'cinema', 'stream', 'pulse'];
+    const noun = ['lounge', 'squad', 'stage', 'hub', 'party'];
+    const random = Math.floor(100 + Math.random() * 900);
+    const code = `${adjectives[Math.floor(Math.random() * adjectives.length)]}-${noun[Math.floor(Math.random() * noun.length)]}-${random}`;
+    setRoomId(code);
+  };
+
   const joinRoom = () => {
-    if (!username.trim() || !socketRef.current) return;
-    socketRef.current.emit('room:join', { roomId, username });
+    if (!username.trim()) return;
+
+    // Ensure socket is active before emitting
+    if (socketRef.current) {
+      if (!socketRef.current.connected) {
+        socketRef.current.connect();
+      }
+      socketRef.current.emit('room:join', { roomId, username: username.trim() });
+    }
+
     setJoined(true);
 
     setTimeout(() => {
@@ -201,7 +237,9 @@ export default function App() {
   };
 
   const emitPlaybackAction = (action: 'PLAY' | 'PAUSE' | 'SEEK', position: number) => {
-    if (isLocalActionRef.current || !socketRef.current) return;
+    // Only the room host is allowed to broadcast playback actions
+    if (!isHost || isLocalActionRef.current || !socketRef.current) return;
+
     socketRef.current.emit('playback:action', {
       roomId,
       action,
@@ -223,25 +261,41 @@ export default function App() {
       setIsPlaying(false);
     }
   };
+  const handleSeeked = () => {
+    if (videoRef.current && isHost && !isLocalActionRef.current) {
+      emitPlaybackAction('SEEK', videoRef.current.currentTime);
+    }
+  };
 
   const selectVideo = (item: PlaylistItem) => {
     setCurrentVideoUrl(item.url);
-    if (videoRef.current) {
-      videoRef.current.src = item.url;
-      videoRef.current.load();
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-    }
-    if (socketRef.current) {
+    if (socketRef.current?.connected) {
       socketRef.current.emit('room:change_stream', { roomId, videoUrl: item.url });
+      emitPlaybackAction('SEEK', 0);
     }
-    emitPlaybackAction('SEEK', 0);
   };
 
   const sendChatMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || !socketRef.current) return;
-    socketRef.current.emit('chat:message', { roomId, message: inputMessage, username });
+    if (!inputMessage.trim()) return;
+
+    const newMsg: ChatMessage = {
+      id: `${Date.now()}-${Math.random()}`,
+      username: username || 'Anonymous',
+      message: inputMessage.trim(),
+      timestamp: Date.now(),
+    };
+
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('chat:message', {
+        roomId,
+        message: newMsg.message,
+        username: newMsg.username,
+      });
+    } else {
+      console.warn('Socket not connected. Backend server might be offline.');
+    }
+
     setInputMessage('');
   };
 
@@ -256,48 +310,125 @@ export default function App() {
     ? fuse.search(searchQuery).map((res) => res.item)
     : playlist;
 
+  // ==========================================
+  // STREAMLINED CENTERED HERO LANDING PAGE
+  // ==========================================
   if (!joined) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 max-w-md w-full shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
-              Watch Party
-            </h1>
-            <p className="text-slate-400 text-sm">Synchronized real-time playback & chat</p>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs text-slate-400 uppercase font-semibold">Your Name</label>
-              <input
-                type="text"
-                placeholder="e.g. Aman"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full mt-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-white text-left"
-              />
+      <div className="relative min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6 bg-grid-pattern overflow-hidden">
+        {/* Soft Background Radial Glows */}
+        <div className="absolute -top-32 left-1/3 w-[500px] h-[500px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute -bottom-32 right-1/3 w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-[140px] pointer-events-none" />
+
+        <div className="relative z-10 w-full max-w-xl">
+          <div className="bg-slate-900/80 border border-slate-800/90 backdrop-blur-2xl rounded-3xl p-8 sm:p-10 shadow-2xl shadow-black/80 space-y-7">
+
+            {/* Header Brand */}
+            <div className="space-y-2 text-center">
+              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+                Watch Party
+              </h1>
+              <p className="text-slate-400 text-sm leading-relaxed max-w-md mx-auto">
+                Watch videos together in real time with synchronized playback, live emoji reactions, and instant party chat.
+              </p>
             </div>
-            <div>
-              <label className="text-xs text-slate-400 uppercase font-semibold">Room Code</label>
-              <input
-                type="text"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                className="w-full mt-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-white text-left"
-              />
+
+            {/* Mode Switcher */}
+            <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-800/80 mx-auto max-w-xs">
+              <button
+                type="button"
+                onClick={() => setLobbyTab('join')}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${lobbyTab === 'join'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
+              >
+                Join Existing Room
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLobbyTab('create');
+                  generateRandomRoom();
+                }}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${lobbyTab === 'create'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
+              >
+                Create New Party
+              </button>
             </div>
-            <button
-              onClick={joinRoom}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-semibold cursor-pointer transition shadow-lg shadow-blue-600/30"
+
+            {/* Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                joinRoom();
+              }}
+              className="space-y-4"
             >
-              Enter Watch Room
-            </button>
+              <div className="space-y-1.5 text-left">
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                  Your Display Name
+                </label>
+                <div className="relative">
+                  <UserCheck className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Enter your nickname..."
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950/70 border border-slate-700/80 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-left"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    {lobbyTab === 'create' ? 'Generated Room Code' : 'Party Room ID'}
+                  </label>
+                  {lobbyTab === 'create' && (
+                    <button
+                      type="button"
+                      onClick={generateRandomRoom}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium cursor-pointer"
+                    >
+                      <Shuffle className="w-3 h-3" /> Roll new ID
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950/70 border border-slate-700/80 rounded-xl text-white placeholder-slate-500 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-left"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/45 cursor-pointer active:scale-[0.99] transition-all flex items-center justify-center gap-2.5 text-sm"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>{lobbyTab === 'create' ? 'Host & Start Party' : 'Enter Party Room'}</span>
+              </button>
+            </form>
           </div>
         </div>
       </div>
     );
   }
 
+  // ==========================================
+  // MAIN WATCH ROOM (Unchanged)
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header className="border-b border-slate-800 bg-slate-900/60 px-6 py-4 flex items-center justify-between backdrop-blur">
@@ -342,12 +473,13 @@ export default function App() {
               className="w-full h-full object-contain relative z-0"
               onPlay={handlePlay}
               onPause={handlePause}
-              controls
+              onSeeked={handleSeeked}
+              controls={isHost} /* Peer browsers get clean synced playback without native pause/scrub */
               playsInline
               preload="auto"
             />
 
-            {/* Floating Reactions Overlay (stops before the native control bar) */}
+            {/* Floating Reactions Overlay */}
             <div className="absolute top-0 left-0 right-0 bottom-16 z-10 pointer-events-none overflow-hidden">
               {floatingEmojis.map((item) => (
                 <span
@@ -400,11 +532,10 @@ export default function App() {
                 <div
                   key={movie.id}
                   onClick={() => selectVideo(movie)}
-                  className={`border rounded-lg p-3 cursor-pointer transition flex flex-col gap-2 ${
-                    currentVideoUrl === movie.url
-                      ? 'bg-blue-900/30 border-blue-500'
-                      : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/50'
-                  }`}
+                  className={`border rounded-lg p-3 cursor-pointer transition flex flex-col gap-2 ${currentVideoUrl === movie.url
+                    ? 'bg-blue-900/30 border-blue-500'
+                    : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/50'
+                    }`}
                 >
                   <div className="font-semibold text-xs truncate">{movie.title}</div>
                   <span className="text-[10px] text-blue-400 uppercase font-mono">

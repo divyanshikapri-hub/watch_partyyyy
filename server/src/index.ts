@@ -87,18 +87,18 @@ io.on('connection', (socket: Socket) => {
           },
           {
             id: '2',
-            title: 'Big Buck Bunny (Animation)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+            title: 'Flower Bloom (Mozilla CC0)',
+            url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
           },
           {
             id: '3',
-            title: 'Elephants Dream (Sci-Fi)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+            title: 'We Are Going On Bullrun (Direct HD)',
+            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
           },
           {
             id: '4',
-            title: 'Tears of Steel (Blender VFX)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+            title: 'Sintel Trailer (Direct MP4)',
+            url: 'https://media.w3.org/2010/05/sintel/trailer.mp4',
           },
         ],
       };
