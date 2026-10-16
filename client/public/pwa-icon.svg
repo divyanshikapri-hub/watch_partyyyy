@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <!-- Background base -->
+  <rect width="512" height="512" rx="112" fill="#020617"/>
+  <!-- Vibrant card with film aesthetic -->
+  <rect x="48" y="48" width="416" height="416" rx="88" fill="url(#bgGrad)" filter="url(#shadow)"/>
+  
+  <!-- Film Sprocket holes left & right -->
+  <rect x="70" y="80" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="70" y="140" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="70" y="200" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="70" y="260" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="70" y="320" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="70" y="380" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+
+  <rect x="418" y="80" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="418" y="140" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="418" y="200" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="418" y="260" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="418" y="320" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+  <rect x="418" y="380" width="24" height="32" rx="6" fill="#020617" opacity="0.65"/>
+
+  <!-- Play Symbol & Cinema glow -->
+  <path d="M210 160 L350 256 L210 352 Z" fill="#ffffff" filter="url(#shadow)"/>
+  <!-- Sparkles / Party live badge -->
+  <circle cx="360" cy="140" r="16" fill="#f59e0b"/>
+  <circle cx="160" cy="370" r="12" fill="#ec4899"/>
+  <path d="M380 180 L388 196 L404 204 L388 212 L380 228 L372 212 L356 204 L372 196 Z" fill="#fef08a"/>
+</svg>

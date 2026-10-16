@@ -3,13 +3,17 @@ import http from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -45,22 +49,23 @@ function getCurrentPlaybackTime(room: RoomState): number {
 io.on('connection', (socket: Socket) => {
   // 1. NTP-style Clock Synchronization
   // Client sends its local timestamp `t0`. Server returns `t0` and server's `t1`.
-  // Stream Selection Sync
+  socket.on('sync:ping', (clientSendTime: number) => {
+    socket.emit('sync:pong', {
+      clientSendTime,
+      serverTime: Date.now(),
+    });
+  });
+
+  // Stream Selection Sync (Host only)
   socket.on('room:change_stream', ({ roomId, videoUrl }: { roomId: string; videoUrl: string }) => {
     const room = rooms.get(roomId);
-    if (room) {
+    if (room && room.hostId === socket.id) {
       room.currentVideoUrl = videoUrl;
       room.playbackPosition = 0;
       room.isPlaying = false;
       room.lastUpdatedServerTime = Date.now();
       io.to(roomId).emit('room:stream_changed', { videoUrl });
     }
-  });
-  socket.on('sync:ping', (clientSendTime: number) => {
-    socket.emit('sync:pong', {
-      clientSendTime,
-      serverTime: Date.now(),
-    });
   });
 
   // 2. Room Creation / Joining
@@ -69,7 +74,6 @@ io.on('connection', (socket: Socket) => {
 
     let room = rooms.get(roomId);
     if (!room) {
-      // First user becomes host
       // First user becomes host
       room = {
         roomId,
@@ -92,8 +96,8 @@ io.on('connection', (socket: Socket) => {
           },
           {
             id: '3',
-            title: 'We Are Going On Bullrun (Direct HD)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
+            title: 'Big Buck Bunny (Direct Stream)',
+            url: 'https://www.w3schools.com/html/mov_bbb.mp4',
           },
           {
             id: '4',
@@ -128,10 +132,17 @@ io.on('connection', (socket: Socket) => {
     roomId,
     action, // 'PLAY' | 'PAUSE' | 'SEEK'
     position,
-    clientLocalTime,
+  }: {
+    roomId: string;
+    action: 'PLAY' | 'PAUSE' | 'SEEK';
+    position: number;
+    clientLocalTime?: number;
   }) => {
     const room = rooms.get(roomId);
     if (!room) return;
+
+    // Enforce that only the room host broadcasts playback events (Play, Pause, Seek)
+    if (room.hostId !== socket.id) return;
 
     const now = Date.now();
     const scheduledExecutionServerTime = now + 150; // Schedule execution 150ms into the future to ensure sync
@@ -160,7 +171,7 @@ io.on('connection', (socket: Socket) => {
   });
 
   // 4. Live Chat & Emoji Reactions
-  socket.on('chat:message', ({ roomId, message, username }) => {
+  socket.on('chat:message', ({ roomId, message, username }: { roomId: string; message: string; username: string }) => {
     io.to(roomId).emit('chat:message', {
       id: Math.random().toString(36).substring(2, 9),
       username,
@@ -169,7 +180,7 @@ io.on('connection', (socket: Socket) => {
     });
   });
 
-  socket.on('reaction:send', ({ roomId, emoji }) => {
+  socket.on('reaction:send', ({ roomId, emoji }: { roomId: string; emoji: string }) => {
     io.to(roomId).emit('reaction:broadcast', {
       emoji,
       senderId: socket.id,
@@ -177,7 +188,7 @@ io.on('connection', (socket: Socket) => {
   });
 
   // 5. Host Transfer
-  socket.on('room:transfer_host', ({ roomId, newHostId }) => {
+  socket.on('room:transfer_host', ({ roomId, newHostId }: { roomId: string; newHostId: string }) => {
     const room = rooms.get(roomId);
     if (room && room.hostId === socket.id && room.users.has(newHostId)) {
       room.hostId = newHostId;
@@ -210,13 +221,19 @@ io.on('connection', (socket: Socket) => {
     });
   });
 });
+
 // Serve built static client files
 const clientDistPath = path.resolve(__dirname, '../../client/dist');
 app.use(express.static(clientDistPath));
 
 // Express 5 compatible catch-all fallback
 app.get('/{*splat}', (_req, res) => {
-  res.sendFile(path.join(clientDistPath, 'index.html'));
+  const indexPath = path.join(clientDistPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.json({ status: 'ok', message: 'Watch Party backend running' });
+  }
 });
 
 const PORT = Number(process.env.PORT) || 4000;
